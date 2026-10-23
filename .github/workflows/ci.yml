@@ -70,13 +70,16 @@ jobs:
           packages: platforms;android-34 build-tools;34.0.0
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Build each addon
+      - name: Build each addon from root
         run: |
           chmod +x launcher/gradlew
+          mkdir -p compiled_addons
           for addon in addons/*/; do
-            if [ -f "$addon/build.gradle" ] || [ -f "$addon/build.gradle.kts" ]; then
-              echo "Building $addon..."
-              (cd "$addon" && ../../launcher/gradlew assembleRelease --no-daemon) || true
+            if [ -d "$addon" ]; then
+              addon_name=$(basename "$addon")
+              echo "Building $addon_name..."
+              (cd launcher && ./gradlew assembleRelease --no-daemon) || true
+              find addons/ -name "*.apk" -exec cp {} compiled_addons/ \; 2>/dev/null || true
             fi
           done
 
@@ -84,5 +87,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: all-addons-apks
-          path: addons/*/build/outputs/apk/release/*.apk
-          
+          path: |
+            addons/**/build/outputs/apk/**/*.apk
+            compiled_addons/*.apk
+            
