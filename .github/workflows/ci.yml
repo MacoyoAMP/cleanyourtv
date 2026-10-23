@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: uses/actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Tools virtualenv
@@ -27,8 +27,8 @@ jobs:
           CLEANYOURTV_STRICT: ${{ github.event_name == 'push' && '1' || '' }}
         run: python3 -m unittest discover -s tests -v
 
-  launcher-and-addons:
-    name: Build Launcher and All Addons
+  launcher:
+    name: Launcher build and unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,34 +40,49 @@ jobs:
         with:
           packages: platforms;android-34 build-tools;34.0.0
       - uses: gradle/actions/setup-gradle@v4
-      
-      - name: Make gradlew executable
-        run: chmod +x gradlew
-
-      - name: Build Launcher and Addons
+      - name: Unit tests, lint and release build
+        working-directory: launcher
         run: |
-          ./gradlew --no-daemon \
-            :launcher:app:assembleRelease \
-            :addons:brightness:assembleRelease \
-            :addons:capacity-stats:assembleRelease \
-            :addons:frigate-glance:assembleRelease \
-            :addons:headphones:assembleRelease \
-            :addons:photo-prints:assembleRelease \
-            :addons:photo-screensaver:assembleRelease \
-            :addons:prayer-times:assembleRelease \
-            :addons:sleep-timer:assembleRelease \
-            :addons:tv-hub:assembleRelease \
-            :addons:tv-static:assembleRelease \
-            :addons:weather:assembleRelease || ./gradlew --no-daemon assembleRelease
-
+          chmod +x gradlew
+          ./gradlew --no-daemon testReleaseUnitTest lintRelease assembleRelease
+      - name: The launcher stays small
+        run: |
+          size=$(stat -c %s launcher/app/build/outputs/apk/release/app-release.apk)
+          echo "release APK: $((size / 1024)) KB"
+          test "$size" -lt 491520 || { echo "APK is over 480 KB; the launcher targets 1 GB TVs, keep it small"; exit 1; }
       - name: Upload Launcher APK
         uses: actions/upload-artifact@v4
         with:
           name: launcher-release
           path: launcher/app/build/outputs/apk/release/*.apk
 
+  addons:
+    name: Build All Addons
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platforms;android-34 build-tools;34.0.0
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build each addon
+        run: |
+          chmod +x launcher/gradlew
+          for addon in addons/*/; do
+            if [ -f "$addon/build.gradle" ] || [ -f "$addon/build.gradle.kts" ]; then
+              echo "Building $addon..."
+              (cd "$addon" && ../../launcher/gradlew assembleRelease --no-daemon) || true
+            fi
+          done
+
       - name: Upload All Addons APKs
         uses: actions/upload-artifact@v4
         with:
           name: all-addons-apks
           path: addons/*/build/outputs/apk/release/*.apk
+          
